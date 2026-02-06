@@ -1,4 +1,8 @@
-import streamlit as st
+
+import os
+
+PROJECT_FILES = {
+    "app.py": r'''import streamlit as st
 import pandas as pd
 import geopandas as gpd
 from sqlalchemy import create_engine
@@ -199,4 +203,106 @@ if st.button("Start Import"):
                 st.exception(e)
         else:
             st.error("Please provide a valid file.")
+''',
 
+    "requirements.txt": r'''streamlit
+pandas
+geopandas
+sqlalchemy
+geoalchemy2
+psycopg2-binary
+pyarrow
+''',
+
+    "Dockerfile": r'''# Use an official Python runtime as a parent image
+FROM python:3.11-slim
+
+# Set the working directory to /app
+WORKDIR /app
+
+# Install system dependencies (required for geopandas/psycopg2)
+RUN apt-get update && apt-get install -y \
+    binutils \
+    libproj-dev \
+    gdal-bin \
+    libgdal-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the current directory contents into the container at /app
+COPY . /app
+
+# Install any needed packages specified in requirements.txt
+RUN pip install --trusted-host pypi.python.org -r requirements.txt
+
+# Make port 8501 available to the world outside this container
+EXPOSE 8501
+
+# Run app.py when the container launches
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+''',
+
+    "run.sh": r'''#!/bin/bash
+
+# Navigate to the script's directory
+cd "$(dirname "$0")"
+
+# Check if venv exists
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv venv
+    source venv/bin/activate
+    echo "Installing dependencies..."
+    pip install -r requirements.txt
+else
+    source venv/bin/activate
+fi
+
+# Run the app
+echo "Starting Parquet Importer..."
+streamlit run app.py
+''',
+    
+    "generate_data.py": r'''import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+import numpy as np
+
+# Create dummy data
+data = {
+    'id': range(10),
+    'value': np.random.randn(10),
+    'category': ['A', 'B'] * 5
+}
+df = pd.DataFrame(data)
+
+# Create geometry
+geometry = [Point(x, y) for x, y in zip(np.random.rand(10), np.random.rand(10))]
+gdf = gpd.GeoDataFrame(df, geometry=geometry)
+
+# Save to Parquet
+# Geopandas saves geometry as WKB in parquet by default or uses geo-parquet spec if available.
+# We will just use to_parquet which modern geopandas handles well.
+gdf.to_parquet('dummy_spatial.parquet')
+
+print("Created dummy_spatial.parquet")
+'''
+}
+
+def recreate_files():
+    print("Recreating project files...")
+    for filename, content in PROJECT_FILES.items():
+        with open(filename, 'w') as f:
+            f.write(content)
+        
+        # Determine if it needs executable permissions
+        if filename.endswith(".sh"):
+            st = os.stat(filename)
+            os.chmod(filename, st.st_mode | 0o111)
+            
+        print(f"Created/Updated {filename}")
+    
+    print("\nDone! You can run the app using:")
+    print("  ./run.sh")
+
+if __name__ == "__main__":
+    recreate_files()
